@@ -1,50 +1,41 @@
 #include <AcksenButton.h>
-#include <SPI.h>
-#include <Wire.h>
-#include <Adafruit_GFX.h>
-#include <Adafruit_SSD1306.h>
-#include <WTV020SD16P.h>
+#include "Arduino.h"
+#include "SoftwareSerial.h"
+#include "DFRobotDFPlayerMini.h"
 
-#define BUTTON_PIN 13
+#define BUTTON_PIN 4
 #define CLICK_TIME 500
 #define BUTTON_DEBOUNCE_INTERVAL 10
-
-#define SSD1306_NO_SPLASH
-
-#define SCREEN_WIDTH 128 // OLED display width, in pixels
-#define SCREEN_HEIGHT 32 // OLED display height, in pixels
-
-#define SOUND_RESET_PIN 26
-#define SOUND_CLK_PIN 27
-#define SOUND_DATA_PIN 14
-#define SOUND_BUSY_PIN 12
-
-#define OLED_RESET     -1 // Reset pin # (or -1 if sharing Arduino reset pin)
-#define SCREEN_ADDRESS 0x3C ///< See datasheet for Address; 0x3D for 128x64, 0x3C for 128x32
-Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
 
 int count = 0;
 
 int sent = 1;
 int pressSendTime = 0;
 
-AcksenButton rotary = AcksenButton(BUTTON_PIN, ACKSEN_BUTTON_MODE_NORMAL, BUTTON_DEBOUNCE_INTERVAL, INPUT);
-WTV020SD16P wtv020sd16p(SOUND_RESET_PIN, SOUND_CLK_PIN, SOUND_DATA_PIN, SOUND_BUSY_PIN);
+AcksenButton rotary = AcksenButton(BUTTON_PIN, ACKSEN_BUTTON_MODE_NORMAL, BUTTON_DEBOUNCE_INTERVAL, INPUT_PULLUP);
+
+SoftwareSerial mySoftwareSerial(A1, A0); // RX, TX
+DFRobotDFPlayerMini myDFPlayer;
 
 void setup() {
   Serial.begin(115200);
+  mySoftwareSerial.begin(9600);
 
-  wtv020sd16p.reset();
-
-  // SSD1306_SWITCHCAPVCC = generate display voltage from 3.3V internally
-  if(!display.begin(SSD1306_SWITCHCAPVCC, SCREEN_ADDRESS)) {
-    Serial.println(F("SSD1306 allocation failed"));
-    for(;;); // Don't proceed, loop forever
+  Serial.println();
+  Serial.println(F("DFRobot DFPlayer Mini Demo"));
+  Serial.println(F("Initializing DFPlayer ... (May take 3~5 seconds)"));
+  
+  if (!myDFPlayer.begin(mySoftwareSerial)) {  //Use softwareSerial to communicate with mp3.
+    Serial.println(F("Unable to begin:"));
+    Serial.println(F("1.Please recheck the connection!"));
+    Serial.println(F("2.Please insert the SD card!"));
+    while(true){
+      delay(0); // Code to compatible with ESP8266 watch dog.
+    }
   }
 
-  pinMode(BUTTON_PIN, INPUT);
-  
-  display.clearDisplay();
+  myDFPlayer.volume(25);  //Set volume value. From 0 to 30
+  Serial.println("Hello");
 }
 
 void loop() {
@@ -66,19 +57,8 @@ void loop() {
       }
 
       Serial.println(value);
+      myDFPlayer.play(value + 1);
 
-      display.clearDisplay();
-      
-      display.setTextSize(4);      // Normal 1:1 pixel scale
-      display.setTextColor(SSD1306_WHITE); // Draw white text
-      display.setCursor(0, 0);     // Start at top-left corner
-      display.cp437(true);         // Use full 256 char 'Code Page 437' font
-      display.write(0x30 + value);
-      display.display();
-
-      wtv020sd16p.stopVoice();
-      wtv020sd16p.asyncPlayVoice(value);
-      
       count = 0;
       sent = 1;
     } else {
@@ -86,6 +66,69 @@ void loop() {
       sent = 1;
     }
   }
+  
+  if (myDFPlayer.available()) {
+    printDetail(myDFPlayer.readType(), myDFPlayer.read()); //Print the detail message from DFPlayer to handle different errors and states.
+  }
+}
 
-  delay(1);
+void printDetail(uint8_t type, int value){
+  switch (type) {
+    case TimeOut:
+      Serial.println(F("Time Out!"));
+      break;
+    case WrongStack:
+      Serial.println(F("Stack Wrong!"));
+      break;
+    case DFPlayerCardInserted:
+      Serial.println(F("Card Inserted!"));
+      break;
+    case DFPlayerCardRemoved:
+      Serial.println(F("Card Removed!"));
+      break;
+    case DFPlayerCardOnline:
+      Serial.println(F("Card Online!"));
+      break;
+    case DFPlayerUSBInserted:
+      Serial.println("USB Inserted!");
+      break;
+    case DFPlayerUSBRemoved:
+      Serial.println("USB Removed!");
+      break;
+    case DFPlayerPlayFinished:
+      Serial.print(F("Number:"));
+      Serial.print(value);
+      Serial.println(F(" Play Finished!"));
+      break;
+    case DFPlayerError:
+      Serial.print(F("DFPlayerError:"));
+      switch (value) {
+        case Busy:
+          Serial.println(F("Card not found"));
+          break;
+        case Sleeping:
+          Serial.println(F("Sleeping"));
+          break;
+        case SerialWrongStack:
+          Serial.println(F("Get Wrong Stack"));
+          break;
+        case CheckSumNotMatch:
+          Serial.println(F("Check Sum Not Match"));
+          break;
+        case FileIndexOut:
+          Serial.println(F("File Index Out of Bound"));
+          break;
+        case FileMismatch:
+          Serial.println(F("Cannot Find File"));
+          break;
+        case Advertise:
+          Serial.println(F("In Advertise"));
+          break;
+        default:
+          break;
+      }
+      break;
+    default:
+      break;
+  } 
 }
